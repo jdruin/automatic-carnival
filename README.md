@@ -12,7 +12,47 @@ A powerful Slack bot that uses **Microsoft Semantic Kernel** (Microsoft Agent Fr
 - **Thread-Aware**: Automatically tracks and maintains conversation history per thread
 - **Real-time Communication**: Uses Slack Socket Mode for instant message handling
 - **Conversation Memory**: Configurable message history with automatic cleanup
+- **Tool/Function Calling**: Agent can automatically invoke tools to enhance capabilities
 - **No Bot Framework**: Pure Semantic Kernel implementation without Microsoft Bot Framework
+
+## Available Tools & Capabilities
+
+The agent comes with built-in plugins that extend its capabilities through automatic function calling:
+
+### 🗓️ DateTime Plugin
+- **get_current_time**: Get current time in any timezone
+- **get_current_date**: Get today's date
+- **get_day_of_week**: Find what day of the week a date falls on
+- **calculate_date_difference**: Calculate days between two dates
+
+Example: *"What time is it in Tokyo?"* or *"How many days until Christmas?"*
+
+### 🔢 Calculator Plugin
+- **add**, **subtract**, **multiply**, **divide**: Basic arithmetic
+- **power**: Raise numbers to a power
+- **square_root**: Calculate square roots
+- **percentage**: Calculate percentages
+
+Example: *"What's 15% of 250?"* or *"Calculate 2 to the power of 10"*
+
+### 📝 Text Utility Plugin
+- **count_words**: Count words in text
+- **reverse_text**: Reverse character order
+- **to_uppercase**, **to_lowercase**, **to_title_case**: Text formatting
+- **encode_base64**, **decode_base64**: Base64 encoding/decoding
+- **generate_random_string**: Generate random strings
+
+Example: *"Count the words in this message"* or *"Convert this to base64"*
+
+### 💬 Slack Plugin
+- **list_channels**: List all public channels
+- **get_channel_members**: Get member count for a channel
+- **get_user_info**: Get information about a user
+- **search_messages**: Search for messages in Slack
+
+Example: *"List all channels"* or *"How many members are in #general?"*
+
+The agent automatically determines when to use these tools based on your questions and can chain multiple tool calls together to solve complex tasks.
 
 ## Architecture
 
@@ -37,15 +77,21 @@ A powerful Slack bot that uses **Microsoft Semantic Kernel** (Microsoft Agent Fr
 └────────┬────────────────────────────────┘
          │
 ┌────────▼────────────────────────────────┐
-│  Microsoft Semantic Kernel               │
-│  (Chat Completion Service)               │
+│      AgentOrchestrator                   │
+│  - Semantic Kernel setup                 │
+│  - Plugin registration                   │
+│  - Auto function calling                 │
 └────────┬────────────────────────────────┘
          │
-    ┌────┴────┐
-    │         │
-┌───▼──┐  ┌──▼─────┐
-│Ollama│  │Bedrock │
-└──────┘  └────────┘
+         ├─────────────────────────┐
+         │                         │
+┌────────▼────────────┐   ┌────────▼────────────┐
+│  LLM Providers      │   │  Tool Plugins       │
+│  - Ollama           │   │  - DateTime         │
+│  - Bedrock (Claude) │   │  - Calculator       │
+└─────────────────────┘   │  - TextUtility      │
+                          │  - Slack            │
+                          └─────────────────────┘
 ```
 
 ## Prerequisites
@@ -224,8 +270,9 @@ The bot automatically maintains separate conversation contexts for different thr
 
 3. Each thread maintains its own conversation history independently
 
-### Example Conversation
+### Example Conversations
 
+**Basic Conversation:**
 ```
 User: @Bot What is Semantic Kernel?
 Bot: Semantic Kernel is Microsoft's Agent Framework that allows you to
@@ -235,6 +282,30 @@ User (in same thread): Can you give me an example in C#?
 Bot: Sure! Here's a simple example using Semantic Kernel in C#...
      [Bot remembers the context about Semantic Kernel from previous message]
 ```
+
+**Tool Calling Examples:**
+```
+User: @Bot What time is it in New York?
+Bot: [Automatically calls get_current_time("America/New_York")]
+     Current time in Eastern Standard Time: 2025-01-15 14:30:00
+
+User: @Bot Calculate 15% of 250
+Bot: [Automatically calls percentage(15, 250)]
+     37.50
+
+User: @Bot How many days until Christmas?
+Bot: [Automatically calls get_current_date() and calculate_date_difference()]
+     There are 343 days between today and 2025-12-25.
+
+User: @Bot List all channels
+Bot: [Automatically calls list_channels()]
+     Public channels:
+     - #general: Company-wide announcements
+     - #random: Water cooler conversations
+     - #engineering: Engineering discussions
+```
+
+The agent automatically determines which tools to use based on your question and can chain multiple tool calls together for complex requests.
 
 ## Project Structure
 
@@ -248,15 +319,41 @@ SlackAiAgent/
 ├── Models/
 │   └── ConversationContext.cs         # Conversation state models
 ├── Services/
+│   ├── AgentOrchestrator.cs           # AI agent with tool calling
 │   ├── ConversationManager.cs         # Multi-thread conversation tracking
 │   ├── SlackService.cs                # Slack integration
 │   └── AI/
 │       ├── AIServiceFactory.cs        # LLM provider factory
 │       ├── OllamaChatCompletion.cs    # Ollama connector
 │       └── BedrockChatCompletion.cs   # Bedrock connector
+├── Plugins/
+│   ├── DateTimePlugin.cs              # Date/time operations
+│   ├── CalculatorPlugin.cs            # Mathematical calculations
+│   ├── TextUtilityPlugin.cs           # Text manipulation
+│   └── SlackPlugin.cs                 # Slack API operations
+└── SlackAiAgent.Tests/                # Unit tests
+    ├── SlackAiAgent.Tests.csproj      # Test project file
+    ├── Configuration/
+    │   └── AppSettingsTests.cs        # Configuration tests
+    ├── Services/
+    │   ├── ConversationManagerTests.cs # Conversation tests
+    │   └── AI/
+    │       └── AIServiceFactoryTests.cs # AI service tests
+    └── Plugins/
+        ├── DateTimePluginTests.cs     # DateTime plugin tests
+        ├── CalculatorPluginTests.cs   # Calculator plugin tests
+        ├── TextUtilityPluginTests.cs  # Text utility tests
+        └── SlackPluginTests.cs        # Slack plugin tests
 ```
 
 ## Key Components
+
+### AgentOrchestrator
+Orchestrates the AI agent with automatic tool calling:
+- Sets up Semantic Kernel with chat completion service
+- Registers and manages all plugins/tools
+- Configures automatic function calling behavior
+- Handles tool invocation and response streaming
 
 ### ConversationManager
 Manages multiple independent conversation contexts based on Slack thread IDs:
@@ -269,12 +366,22 @@ Handles Slack integration:
 - Connects via Socket Mode for real-time events
 - Routes messages to appropriate conversation contexts
 - Manages bot mentions and direct messages
+- Provides Slack client to plugins
 
 ### AI Service Implementations
 Both Ollama and Bedrock connectors implement `IChatCompletionService` from Semantic Kernel:
 - Support for streaming responses
 - Automatic message format conversion
 - Error handling and retry logic
+
+### Plugins
+Extensible tool system for expanding agent capabilities:
+- **DateTimePlugin**: Time and date operations
+- **CalculatorPlugin**: Mathematical calculations
+- **TextUtilityPlugin**: String and text manipulation
+- **SlackPlugin**: Slack workspace operations
+
+Each plugin uses Semantic Kernel's `[KernelFunction]` attributes for automatic discovery and invocation.
 
 ## Troubleshooting
 
@@ -306,6 +413,34 @@ Both Ollama and Bedrock connectors implement `IChatCompletionService` from Seman
 2. **New LLM Providers**: Implement `IChatCompletionService` interface
 3. **Enhanced Context**: Extend `ConversationContext` model
 4. **Slack Features**: Add handlers in `SlackService`
+5. **New Plugins**: Create classes with `[KernelFunction]` attributes
+
+### Running Tests
+
+The project includes comprehensive unit tests using xUnit, Moq, and FluentAssertions.
+
+```bash
+# Run all tests
+dotnet test
+
+# Run tests with detailed output
+dotnet test --verbosity detailed
+
+# Run tests with code coverage
+dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+
+# Run specific test class
+dotnet test --filter "FullyQualifiedName~DateTimePluginTests"
+
+# Run tests in watch mode (auto-rerun on changes)
+dotnet watch test
+```
+
+**Test Coverage:**
+- **ConversationManager**: Thread management, message history, cleanup
+- **Plugins**: All plugin functions (DateTime, Calculator, TextUtility, Slack)
+- **AI Services**: Service factory and provider creation
+- **Configuration**: Settings validation and defaults
 
 ### Testing Locally
 
@@ -316,6 +451,30 @@ dotnet run --environment Development
 # Test with different models
 # Edit appsettings.json and change AI:Ollama:ModelId
 dotnet run
+```
+
+### Adding New Plugins
+
+To add a new plugin:
+
+1. Create a new class in the `Plugins/` directory
+2. Add methods with `[KernelFunction]` and `[Description]` attributes
+3. Register the plugin in `AgentOrchestrator.RegisterBasicPlugins()`
+4. Write unit tests in `SlackAiAgent.Tests/Plugins/`
+
+Example:
+```csharp
+public class WeatherPlugin
+{
+    [KernelFunction("get_weather")]
+    [Description("Gets the current weather for a location")]
+    public string GetWeather(
+        [Description("The city name")] string city)
+    {
+        // Implementation
+        return $"Weather in {city}: Sunny, 72°F";
+    }
+}
 ```
 
 ## Performance Considerations
