@@ -331,6 +331,19 @@ SlackAiAgent/
 │   ├── CalculatorPlugin.cs            # Mathematical calculations
 │   ├── TextUtilityPlugin.cs           # Text manipulation
 │   └── SlackPlugin.cs                 # Slack API operations
+└── SlackAiAgent.Tests/                # Unit tests
+    ├── SlackAiAgent.Tests.csproj      # Test project file
+    ├── Configuration/
+    │   └── AppSettingsTests.cs        # Configuration tests
+    ├── Services/
+    │   ├── ConversationManagerTests.cs # Conversation tests
+    │   └── AI/
+    │       └── AIServiceFactoryTests.cs # AI service tests
+    └── Plugins/
+        ├── DateTimePluginTests.cs     # DateTime plugin tests
+        ├── CalculatorPluginTests.cs   # Calculator plugin tests
+        ├── TextUtilityPluginTests.cs  # Text utility tests
+        └── SlackPluginTests.cs        # Slack plugin tests
 ```
 
 ## Key Components
@@ -400,6 +413,34 @@ Each plugin uses Semantic Kernel's `[KernelFunction]` attributes for automatic d
 2. **New LLM Providers**: Implement `IChatCompletionService` interface
 3. **Enhanced Context**: Extend `ConversationContext` model
 4. **Slack Features**: Add handlers in `SlackService`
+5. **New Plugins**: Create classes with `[KernelFunction]` attributes
+
+### Running Tests
+
+The project includes comprehensive unit tests using xUnit, Moq, and FluentAssertions.
+
+```bash
+# Run all tests
+dotnet test
+
+# Run tests with detailed output
+dotnet test --verbosity detailed
+
+# Run tests with code coverage
+dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+
+# Run specific test class
+dotnet test --filter "FullyQualifiedName~DateTimePluginTests"
+
+# Run tests in watch mode (auto-rerun on changes)
+dotnet watch test
+```
+
+**Test Coverage:**
+- **ConversationManager**: Thread management, message history, cleanup
+- **Plugins**: All plugin functions (DateTime, Calculator, TextUtility, Slack)
+- **AI Services**: Service factory and provider creation
+- **Configuration**: Settings validation and defaults
 
 ### Testing Locally
 
@@ -410,6 +451,30 @@ dotnet run --environment Development
 # Test with different models
 # Edit appsettings.json and change AI:Ollama:ModelId
 dotnet run
+```
+
+### Adding New Plugins
+
+To add a new plugin:
+
+1. Create a new class in the `Plugins/` directory
+2. Add methods with `[KernelFunction]` and `[Description]` attributes
+3. Register the plugin in `AgentOrchestrator.RegisterBasicPlugins()`
+4. Write unit tests in `SlackAiAgent.Tests/Plugins/`
+
+Example:
+```csharp
+public class WeatherPlugin
+{
+    [KernelFunction("get_weather")]
+    [Description("Gets the current weather for a location")]
+    public string GetWeather(
+        [Description("The city name")] string city)
+    {
+        // Implementation
+        return $"Weather in {city}: Sunny, 72°F";
+    }
+}
 ```
 
 ## Performance Considerations
