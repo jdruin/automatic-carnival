@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.ChatCompletion;
 using SlackNet;
 using SlackNet.Events;
+using SlackNet.Interaction;
 using SlackNet.SocketMode;
 using SlackAiAgent.Configuration;
 using SlackAiAgent.Services.AI;
@@ -11,7 +12,7 @@ namespace SlackAiAgent.Services;
 /// <summary>
 /// Handles Slack integration and message processing
 /// </summary>
-public class SlackService
+public class SlackService : IEventHandler
 {
     private readonly AppSettings _settings;
     private readonly ConversationManager _conversationManager;
@@ -53,8 +54,7 @@ public class SlackService
         var socketModeClient = new SlackServiceBuilder()
             .UseApiToken(_settings.Slack.BotToken)
             .UseAppLevelToken(_settings.Slack.AppToken)
-            .UseSocketMode(config => config
-                .RegisterEventHandler<MessageEvent>(HandleMessageEventAsync))
+            .RegisterEventHandler(ctx => this)
             .GetSocketModeClient();
 
         await socketModeClient.Connect(cancellationToken);
@@ -70,6 +70,17 @@ public class SlackService
                 _logger.LogDebug("Cleaned up old conversations");
             }
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// SlackNet event handler interface implementation
+    /// </summary>
+    public async Task Handle(EventCallback eventCallback)
+    {
+        if (eventCallback.Event is MessageEvent messageEvent)
+        {
+            await HandleMessageEventAsync(messageEvent);
+        }
     }
 
     /// <summary>
