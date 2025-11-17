@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SlackNet.Extensions.DependencyInjection;
 using SlackAiAgent.Configuration;
 using SlackAiAgent.Services;
 using SlackAiAgent.Services.AI;
@@ -34,6 +35,8 @@ class Program
 
                 // Register services
                 services.AddSingleton(appSettings);
+
+                // Configure ConversationManager
                 services.AddSingleton(provider =>
                 {
                     var settings = provider.GetRequiredService<AppSettings>();
@@ -41,13 +44,26 @@ class Program
                         settings.Agent.MaxHistoryMessages,
                         settings.Agent.SystemPrompt);
                 });
+
+                // Configure AI Chat Completion Service
                 services.AddSingleton(provider =>
                 {
                     var settings = provider.GetRequiredService<AppSettings>();
                     return AIServiceFactory.CreateChatCompletionService(settings);
                 });
+
+                // Configure AgentOrchestrator
                 services.AddSingleton<AgentOrchestrator>();
+
+                // Configure SlackNet with Socket Mode
+                services.AddSlackNet(s => s
+                    .UseApiToken(appSettings.Slack.BotToken)
+                    .UseAppLevelToken(appSettings.Slack.AppToken)
+                    .RegisterEventHandler(ctx => ctx.ServiceProvider.GetRequiredService<SlackService>()));
+
+                // Register SlackService
                 services.AddSingleton<SlackService>();
+
                 services.AddHttpClient();
                 services.AddHostedService<SlackAgentHostedService>();
             })
