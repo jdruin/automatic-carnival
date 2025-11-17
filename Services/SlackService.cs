@@ -1,11 +1,9 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel.ChatCompletion;
 using SlackNet;
 using SlackNet.Events;
 using SlackNet.Interaction;
 using SlackNet.SocketMode;
 using SlackAiAgent.Configuration;
-using SlackAiAgent.Services.AI;
 
 namespace SlackAiAgent.Services;
 
@@ -16,20 +14,22 @@ public class SlackService : IEventHandler
 {
     private readonly AppSettings _settings;
     private readonly ConversationManager _conversationManager;
-    private readonly IChatCompletionService _chatService;
+    private readonly AgentOrchestrator _agentOrchestrator;
     private readonly ILogger<SlackService> _logger;
     private ISlackApiClient? _slackClient;
     private string? _botUserId;
 
+    public ISlackApiClient? SlackClient => _slackClient;
+
     public SlackService(
         AppSettings settings,
         ConversationManager conversationManager,
-        IChatCompletionService chatService,
+        AgentOrchestrator agentOrchestrator,
         ILogger<SlackService> logger)
     {
         _settings = settings;
         _conversationManager = conversationManager;
-        _chatService = chatService;
+        _agentOrchestrator = agentOrchestrator;
         _logger = logger;
     }
 
@@ -49,6 +49,9 @@ public class SlackService : IEventHandler
         var authTest = await _slackClient.Auth.Test(cancellationToken);
         _botUserId = authTest.UserId;
         _logger.LogInformation("Bot authenticated as {BotUserId}", _botUserId);
+
+        // Register Slack plugin now that client is available
+        _agentOrchestrator.RegisterSlackPlugin(_slackClient);
 
         // Start Socket Mode connection
         var socketModeClient = new SlackServiceBuilder()
@@ -167,16 +170,13 @@ public class SlackService : IEventHandler
     }
 
     /// <summary>
-    /// Gets AI response using the chat completion service
+    /// Gets AI response using the agent orchestrator with tool calling
     /// </summary>
     private async Task<string> GetAIResponseAsync(Models.ConversationContext context)
     {
         try
         {
-            var responses = await _chatService.GetChatMessageContentsAsync(
-                context.ChatHistory);
-
-            return responses.FirstOrDefault()?.Content ?? "I'm sorry, I couldn't generate a response.";
+            return await _agentOrchestrator.GetResponseAsync(context);
         }
         catch (Exception ex)
         {

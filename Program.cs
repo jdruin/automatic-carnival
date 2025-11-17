@@ -46,6 +46,7 @@ class Program
                     var settings = provider.GetRequiredService<AppSettings>();
                     return AIServiceFactory.CreateChatCompletionService(settings);
                 });
+                services.AddSingleton<AgentOrchestrator>();
                 services.AddSingleton<SlackService>();
                 services.AddHttpClient();
                 services.AddHostedService<SlackAgentHostedService>();
@@ -118,6 +119,8 @@ class Program
             Console.WriteLine($"  Bedrock Model: {settings.AI.Bedrock.ModelId}");
         }
         Console.WriteLine($"  Max History Messages: {settings.Agent.MaxHistoryMessages}");
+        Console.WriteLine($"  Tool Calling: Enabled");
+        Console.WriteLine($"  Available Plugins: DateTime, Calculator, TextUtility, Slack");
         Console.WriteLine();
     }
 }
