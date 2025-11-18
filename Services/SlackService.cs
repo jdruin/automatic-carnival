@@ -3,7 +3,6 @@ using SlackNet;
 using SlackNet.Events;
 using SlackNet.Interaction;
 using SlackNet.SocketMode;
-using SlackAiAgent.Configuration;
 
 namespace SlackAiAgent.Services;
 
@@ -12,24 +11,26 @@ namespace SlackAiAgent.Services;
 /// </summary>
 public class SlackService : IEventHandler
 {
-    private readonly AppSettings _settings;
     private readonly ConversationManager _conversationManager;
     private readonly AgentOrchestrator _agentOrchestrator;
+    private readonly ISlackApiClient _slackClient;
+    private readonly ISlackSocketModeClient _socketModeClient;
     private readonly ILogger<SlackService> _logger;
-    private ISlackApiClient? _slackClient;
     private string? _botUserId;
 
-    public ISlackApiClient? SlackClient => _slackClient;
+    public ISlackApiClient SlackClient => _slackClient;
 
     public SlackService(
-        AppSettings settings,
         ConversationManager conversationManager,
         AgentOrchestrator agentOrchestrator,
+        ISlackApiClient slackClient,
+        ISlackSocketModeClient socketModeClient,
         ILogger<SlackService> logger)
     {
-        _settings = settings;
         _conversationManager = conversationManager;
         _agentOrchestrator = agentOrchestrator;
+        _slackClient = slackClient;
+        _socketModeClient = socketModeClient;
         _logger = logger;
     }
 
@@ -40,11 +41,6 @@ public class SlackService : IEventHandler
     {
         _logger.LogInformation("Starting Slack service...");
 
-        // Create Slack client
-        _slackClient = new SlackServiceBuilder()
-            .UseApiToken(_settings.Slack.BotToken)
-            .GetApiClient();
-
         // Get bot user ID
         var authTest = await _slackClient.Auth.Test(cancellationToken);
         _botUserId = authTest.UserId;
@@ -54,13 +50,7 @@ public class SlackService : IEventHandler
         _agentOrchestrator.RegisterSlackPlugin(_slackClient);
 
         // Start Socket Mode connection
-        var socketModeClient = new SlackServiceBuilder()
-            .UseApiToken(_settings.Slack.BotToken)
-            .UseAppLevelToken(_settings.Slack.AppToken)
-            .RegisterEventHandler(ctx => this)
-            .GetSocketModeClient();
-
-        await socketModeClient.Connect(cancellationToken);
+        await _socketModeClient.Connect(cancellationToken);
         _logger.LogInformation("Connected to Slack Socket Mode");
 
         // Start background task to cleanup old conversations
@@ -123,29 +113,23 @@ public class SlackService : IEventHandler
             _conversationManager.AddUserMessage(context, cleanedMessage);
 
             // Show typing indicator
-            if (_slackClient != null)
+            await _slackClient.Chat.PostMessage(new Message
             {
-                await _slackClient.Chat.PostMessage(new Message
-                {
-                    Channel = messageEvent.Channel,
-                    ThreadTs = messageEvent.ThreadTs ?? messageEvent.Ts,
-                    Text = "_Thinking..._"
-                });
-            }
+                Channel = messageEvent.Channel,
+                ThreadTs = messageEvent.ThreadTs ?? messageEvent.Ts,
+                Text = "_Thinking..._"
+            });
 
             // Get AI response
             var response = await GetAIResponseAsync(context);
 
             // Send response to Slack
-            if (_slackClient != null)
+            await _slackClient.Chat.PostMessage(new Message
             {
-                await _slackClient.Chat.PostMessage(new Message
-                {
-                    Channel = messageEvent.Channel,
-                    ThreadTs = messageEvent.ThreadTs ?? messageEvent.Ts, // Reply in thread
-                    Text = response
-                });
-            }
+                Channel = messageEvent.Channel,
+                ThreadTs = messageEvent.ThreadTs ?? messageEvent.Ts, // Reply in thread
+                Text = response
+            });
 
             // Add assistant response to history
             _conversationManager.AddAssistantMessage(context, response);
@@ -157,7 +141,7 @@ public class SlackService : IEventHandler
             _logger.LogError(ex, "Error handling message event");
 
             // Send error message to user
-            if (_slackClient != null && messageEvent != null)
+            if (messageEvent != null)
             {
                 await _slackClient.Chat.PostMessage(new Message
                 {
