@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using SlackNet;
+using SlackNet.WebApi;
 
 namespace SlackAiAgent.Plugins;
 
@@ -31,7 +32,7 @@ public class SlackPlugin
             }
 
             var channels = await _slackClient.Conversations.List(
-                types: new[] { "public_channel" },
+                types: new[] { ConversationType.PublicChannel },
                 limit: 20);
 
             if (channels.Channels.Count == 0)
@@ -69,7 +70,7 @@ public class SlackPlugin
             if (!channel.StartsWith("C"))
             {
                 var channels = await _slackClient.Conversations.List(
-                    types: new[] { "public_channel", "private_channel" });
+                    types: new[] { ConversationType.PublicChannel, ConversationType.PrivateChannel });
                 var targetChannel = channels.Channels
                     .FirstOrDefault(c => c.Name.Equals(channel.TrimStart('#'), StringComparison.OrdinalIgnoreCase));
 
@@ -81,7 +82,7 @@ public class SlackPlugin
             }
 
             var members = await _slackClient.Conversations.Members(channelId);
-            return $"Channel has {members.Count} members";
+            return $"Channel has {members.Members.Count} members";
         }
         catch (Exception ex)
         {
@@ -133,15 +134,15 @@ public class SlackPlugin
 
             var results = await _slackClient.Search.Messages(query, count: count);
 
-            if (results.Matches.Count == 0)
+            if (results.Messages.Matches.Count == 0)
             {
                 return $"No messages found matching '{query}'";
             }
 
-            var messages = string.Join("\n\n", results.Matches.Select(m =>
+            var messages = string.Join("\n\n", results.Messages.Matches.Select(m =>
                 $"From {m.Username}: {m.Text}"));
 
-            return $"Found {results.Matches.Count} messages:\n{messages}";
+            return $"Found {results.Messages.Matches.Count} messages:\n{messages}";
         }
         catch (Exception ex)
         {

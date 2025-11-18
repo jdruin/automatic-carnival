@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -140,8 +141,7 @@ public class AgentOrchestrator
     {
         var fullResponse = new System.Text.StringBuilder();
 
-        try
-        {
+       
             var executionSettings = new OpenAIPromptExecutionSettings
             {
                 ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
@@ -160,12 +160,6 @@ public class AgentOrchestrator
                     yield return chunk.Content;
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting streaming AI response");
-            yield return "I'm sorry, I encountered an error generating a response.";
-        }
     }
 
     /// <summary>

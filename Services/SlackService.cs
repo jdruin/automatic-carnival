@@ -3,6 +3,7 @@ using SlackNet;
 using SlackNet.Events;
 using SlackNet.Interaction;
 using SlackNet.SocketMode;
+using SlackNet.WebApi;
 
 namespace SlackAiAgent.Services;
 
@@ -50,7 +51,7 @@ public class SlackService : IEventHandler
         _agentOrchestrator.RegisterSlackPlugin(_slackClient);
 
         // Start Socket Mode connection
-        await _socketModeClient.Connect(cancellationToken);
+        await _socketModeClient.Connect();
         _logger.LogInformation("Connected to Slack Socket Mode");
 
         // Start background task to cleanup old conversations

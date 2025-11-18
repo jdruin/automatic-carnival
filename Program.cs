@@ -6,6 +6,8 @@ using SlackNet.Extensions.DependencyInjection;
 using SlackAiAgent.Configuration;
 using SlackAiAgent.Services;
 using SlackAiAgent.Services.AI;
+using SlackNet.SocketMode;
+
 
 namespace SlackAiAgent;
 
@@ -59,7 +61,8 @@ class Program
                 services.AddSlackNet(s => s
                     .UseApiToken(appSettings.Slack.BotToken)
                     .UseAppLevelToken(appSettings.Slack.AppToken)
-                    .RegisterEventHandler(ctx => ctx.ServiceProvider.GetRequiredService<SlackService>()));
+                    .RegisterEventHandler(ctx => ctx.GetRequiredService<SlackService>())
+                    );
 
                 // Register SlackService
                 services.AddSingleton<SlackService>();
@@ -159,6 +162,7 @@ public class SlackAgentHostedService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        
         _logger.LogInformation("Starting Slack Agent...");
         await _slackService.StartAsync(cancellationToken);
         _logger.LogInformation("Slack Agent is running. Press Ctrl+C to stop.");
