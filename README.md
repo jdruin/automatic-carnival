@@ -14,6 +14,7 @@ A powerful Slack bot that uses **Microsoft Semantic Kernel** (Microsoft Agent Fr
 - **Real-time Communication**: Uses Slack Socket Mode for instant message handling
 - **Conversation Memory**: Configurable message history with automatic cleanup
 - **Redis Persistence**: Optional Redis integration to persist conversations across agent restarts
+- **Context Rebuild**: Automatically rebuild conversation context from Slack thread history when missing
 - **Tool/Function Calling**: Agent can automatically invoke tools to enhance capabilities
 - **Pure Semantic Kernel**: 100% Microsoft Semantic Kernel implementation, no Bot Framework dependency
 
@@ -169,7 +170,8 @@ Edit `appsettings.json`:
   "Agent": {
     "SystemPrompt": "You are a helpful AI assistant in a Slack workspace. Be concise and professional.",
     "MaxHistoryMessages": 10,
-    "LogThinking": false
+    "LogThinking": false,
+    "RebuildContextFromSlack": true
   },
   "Redis": {
     "Enabled": false,
@@ -216,6 +218,11 @@ export Redis__ConnectionString="localhost:6379"
   - Useful for debugging and understanding agent decisions
   - Supported by thinking models like OpenAI o1
   - Logs appear in console output with clear markers
+- `Agent:RebuildContextFromSlack`: Rebuild conversation context from Slack thread history when missing (default: true)
+  - Automatically fetches and reconstructs conversation history from Slack when context is lost
+  - Useful after agent restarts when using in-memory storage
+  - Respects `MaxHistoryMessages` limit when rebuilding
+  - Skips "_Thinking..._" placeholder messages
 
 #### Redis Settings (Optional)
 - `Redis:Enabled`: Enable Redis for conversation persistence (default: false)
@@ -332,6 +339,39 @@ Redis provides conversation persistence across agent restarts. This is especiall
 - Remote: `redis.example.com:6379`
 - With password: `redis.example.com:6379,password=yourpassword`
 - SSL: `redis.example.com:6380,ssl=true,password=yourpassword`
+
+### Context Rebuild from Slack History
+
+When conversation context is missing (e.g., after restart with in-memory storage or Redis data loss), the agent can automatically rebuild it from Slack's thread history.
+
+**How it works:**
+1. Agent detects that a conversation context only contains the system message
+2. If in a thread and `RebuildContextFromSlack` is enabled, fetches thread history from Slack
+3. Reconstructs the conversation by processing messages in chronological order
+4. Distinguishes between user and bot messages to rebuild chat history correctly
+5. Respects `MaxHistoryMessages` limit - takes the most recent messages
+
+**Example scenario:**
+```
+1. User starts thread: "What is Semantic Kernel?"
+2. Bot responds: "Semantic Kernel is..."
+3. User continues: "Can you give an example?"
+4. Agent restarts (context lost)
+5. User asks: "What about in Python?"
+6. Agent fetches messages 1-3 from Slack, rebuilds context
+7. Agent responds with context from the entire conversation
+```
+
+**Configuration:**
+```json
+{
+  "Agent": {
+    "RebuildContextFromSlack": true
+  }
+}
+```
+
+Set to `false` to disable automatic rebuild (conversation will start fresh after context loss).
 
 ## Usage
 
@@ -459,6 +499,7 @@ Handles Slack integration:
 - Connects via Socket Mode for real-time events
 - Routes messages to appropriate conversation contexts
 - Manages bot mentions and direct messages
+- Automatically rebuilds conversation context from Slack thread history when missing
 - Provides Slack client to plugins
 
 ### Storage Implementations
