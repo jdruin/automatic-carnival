@@ -4,7 +4,8 @@ A powerful Slack bot that uses **Microsoft Semantic Kernel** (Microsoft Agent Fr
 
 ## Features
 
-- **Microsoft Semantic Kernel Integration**: Built on Microsoft's Agent Framework for robust AI orchestration
+- **Native Semantic Kernel Agent**: Uses `ChatCompletionAgent` from Microsoft Semantic Kernel for true agentic behavior
+- **Thinking Mode Support**: Optional logging of reasoning/thinking process for supported models (like OpenAI o1)
 - **Multiple LLM Providers**:
   - Amazon Bedrock (Claude models)
   - Ollama (local LLM deployment)
@@ -13,7 +14,7 @@ A powerful Slack bot that uses **Microsoft Semantic Kernel** (Microsoft Agent Fr
 - **Real-time Communication**: Uses Slack Socket Mode for instant message handling
 - **Conversation Memory**: Configurable message history with automatic cleanup
 - **Tool/Function Calling**: Agent can automatically invoke tools to enhance capabilities
-- **No Bot Framework**: Pure Semantic Kernel implementation without Microsoft Bot Framework
+- **Pure Semantic Kernel**: 100% Microsoft Semantic Kernel implementation, no Bot Framework dependency
 
 ## Available Tools & Capabilities
 
@@ -197,6 +198,10 @@ export AI__Ollama__ModelId="llama3.2"
 #### Agent Settings
 - `Agent:SystemPrompt`: The system prompt that defines the agent's behavior
 - `Agent:MaxHistoryMessages`: Maximum number of messages to keep in conversation history (default: 10)
+- `Agent:LogThinking`: Enable logging of agent's thinking/reasoning process (default: false)
+  - Useful for debugging and understanding agent decisions
+  - Supported by thinking models like OpenAI o1
+  - Logs appear in console output with clear markers
 
 ## Installation & Running
 
@@ -349,11 +354,13 @@ SlackAiAgent/
 ## Key Components
 
 ### AgentOrchestrator
-Orchestrates the AI agent with automatic tool calling:
-- Sets up Semantic Kernel with chat completion service
+Orchestrates the AI agent using Microsoft Semantic Kernel's native `ChatCompletionAgent`:
+- Creates and configures a `ChatCompletionAgent` with system instructions
+- Sets up Semantic Kernel kernel with chat completion service
 - Registers and manages all plugins/tools
-- Configures automatic function calling behavior
-- Handles tool invocation and response streaming
+- Provides automatic tool invocation via `ToolCallBehavior.AutoInvokeKernelFunctions`
+- Supports thinking mode to capture reasoning process from thinking models
+- Handles both standard and streaming agent responses
 
 ### ConversationManager
 Manages multiple independent conversation contexts based on Slack thread IDs:

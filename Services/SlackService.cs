@@ -3,6 +3,7 @@ using SlackNet;
 using SlackNet.Events;
 using SlackNet.Interaction;
 using SlackNet.SocketMode;
+using SlackAiAgent.Configuration;
 
 namespace SlackAiAgent.Services;
 
@@ -11,6 +12,7 @@ namespace SlackAiAgent.Services;
 /// </summary>
 public class SlackService : IEventHandler
 {
+    private readonly AppSettings _settings;
     private readonly ConversationManager _conversationManager;
     private readonly AgentOrchestrator _agentOrchestrator;
     private readonly ISlackApiClient _slackClient;
@@ -21,12 +23,14 @@ public class SlackService : IEventHandler
     public ISlackApiClient SlackClient => _slackClient;
 
     public SlackService(
+        AppSettings settings,
         ConversationManager conversationManager,
         AgentOrchestrator agentOrchestrator,
         ISlackApiClient slackClient,
         ISlackSocketModeClient socketModeClient,
         ILogger<SlackService> logger)
     {
+        _settings = settings;
         _conversationManager = conversationManager;
         _agentOrchestrator = agentOrchestrator;
         _slackClient = slackClient;
@@ -154,13 +158,32 @@ public class SlackService : IEventHandler
     }
 
     /// <summary>
-    /// Gets AI response using the agent orchestrator with tool calling
+    /// Gets AI response using the Semantic Kernel agent with tool calling
     /// </summary>
     private async Task<string> GetAIResponseAsync(Models.ConversationContext context)
     {
         try
         {
-            return await _agentOrchestrator.GetResponseAsync(context);
+            // Check if thinking mode logging is enabled
+            if (_settings.Agent.LogThinking)
+            {
+                var (response, thinking) = await _agentOrchestrator.GetResponseWithThinkingAsync(context);
+
+                // If thinking process is available, log it
+                if (!string.IsNullOrEmpty(thinking))
+                {
+                    _logger.LogInformation("=== Agent Thinking Process ===");
+                    _logger.LogInformation("{Thinking}", thinking);
+                    _logger.LogInformation("=== End Thinking Process ===");
+                }
+
+                return response;
+            }
+            else
+            {
+                // Standard response without thinking logging
+                return await _agentOrchestrator.GetResponseAsync(context);
+            }
         }
         catch (Exception ex)
         {

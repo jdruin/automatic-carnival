@@ -36,4 +36,5 @@ public class AgentSettings
 {
     public string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
     public int MaxHistoryMessages { get; set; } = 10;
+    public bool LogThinking { get; set; } = false; // Enable logging of thinking/reasoning process
 }

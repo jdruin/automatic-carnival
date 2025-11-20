@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Agents;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using SlackNet;
@@ -11,12 +12,12 @@ using SlackAiAgent.Services.AI;
 namespace SlackAiAgent.Services;
 
 /// <summary>
-/// Orchestrates the AI agent with tool/function calling capabilities
+/// Orchestrates the AI agent using Microsoft Semantic Kernel's native agent framework
 /// </summary>
 public class AgentOrchestrator
 {
     private readonly Kernel _kernel;
-    private readonly IChatCompletionService _chatService;
+    private ChatCompletionAgent? _agent;
     private readonly ILogger<AgentOrchestrator> _logger;
     private readonly ILogger<SlackPlugin> _slackPluginLogger;
     private readonly AppSettings _settings;
@@ -29,7 +30,6 @@ public class AgentOrchestrator
         ILogger<SlackPlugin> slackPluginLogger)
     {
         _settings = settings;
-        _chatService = chatService;
         _logger = logger;
         _slackPluginLogger = slackPluginLogger;
 
@@ -44,6 +44,30 @@ public class AgentOrchestrator
 
         // Register basic plugins (Slack plugin will be registered later)
         RegisterBasicPlugins();
+
+        // Create the Semantic Kernel agent
+        InitializeAgent();
+    }
+
+    /// <summary>
+    /// Initializes the Semantic Kernel ChatCompletionAgent
+    /// </summary>
+    private void InitializeAgent()
+    {
+        _agent = new ChatCompletionAgent
+        {
+            Name = "SlackAssistant",
+            Instructions = _settings.Agent.SystemPrompt,
+            Kernel = _kernel,
+            Arguments = new KernelArguments(new OpenAIPromptExecutionSettings
+            {
+                ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
+                Temperature = 0.7,
+                MaxTokens = 2000
+            })
+        };
+
+        _logger.LogInformation("Initialized Semantic Kernel ChatCompletionAgent");
     }
 
     /// <summary>
@@ -95,76 +119,121 @@ public class AgentOrchestrator
     }
 
     /// <summary>
-    /// Gets AI response with automatic tool calling
+    /// Gets AI response using Semantic Kernel ChatCompletionAgent with automatic tool calling
     /// </summary>
     public async Task<string> GetResponseAsync(ConversationContext context)
     {
+        if (_agent == null)
+        {
+            _logger.LogError("Agent not initialized");
+            return "I'm sorry, the agent is not properly initialized.";
+        }
+
         try
         {
-            // Configure execution settings for automatic function calling
-            var executionSettings = new OpenAIPromptExecutionSettings
+            // Get the last user message from chat history
+            var lastUserMessage = context.ChatHistory.LastOrDefault(m => m.Role.Label == "user");
+            if (lastUserMessage == null)
             {
-                ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
-                Temperature = 0.7,
-                MaxTokens = 2000
-            };
-
-            // Get response with automatic tool invocation
-            var response = await _chatService.GetChatMessageContentsAsync(
-                context.ChatHistory,
-                executionSettings,
-                _kernel);
-
-            var result = response.FirstOrDefault()?.Content ?? "I'm sorry, I couldn't generate a response.";
-
-            // Log if any tools were called
-            var lastMessage = response.FirstOrDefault();
-            if (lastMessage?.Metadata?.ContainsKey("ToolCalls") == true)
-            {
-                _logger.LogInformation("Agent used tools to generate response");
+                return "I'm sorry, I didn't receive a message.";
             }
 
-            return result;
+            // Invoke the agent with the chat history
+            var agentResponse = await _agent.InvokeAsync(context.ChatHistory).ConfigureAwait(false);
+
+            // Extract the response content
+            var responseContent = agentResponse.Content ?? "I'm sorry, I couldn't generate a response.";
+
+            // Log tool usage
+            _logger.LogInformation("Agent response generated. Length: {Length} characters", responseContent.Length);
+
+            return responseContent;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting AI response with tool calling");
+            _logger.LogError(ex, "Error getting AI response from Semantic Kernel agent");
             return "I'm sorry, I encountered an error generating a response.";
         }
     }
 
     /// <summary>
-    /// Gets AI response with streaming and automatic tool calling
+    /// Gets AI response with streaming using Semantic Kernel agent
     /// </summary>
     public async IAsyncEnumerable<string> GetStreamingResponseAsync(ConversationContext context)
     {
-        var fullResponse = new System.Text.StringBuilder();
+        if (_agent == null)
+        {
+            _logger.LogError("Agent not initialized");
+            yield return "I'm sorry, the agent is not properly initialized.";
+            yield break;
+        }
 
         try
         {
-            var executionSettings = new OpenAIPromptExecutionSettings
+            // Stream the agent's response
+            await foreach (var content in _agent.InvokeStreamingAsync(context.ChatHistory))
             {
-                ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
-                Temperature = 0.7,
-                MaxTokens = 2000
-            };
-
-            await foreach (var chunk in _chatService.GetStreamingChatMessageContentsAsync(
-                context.ChatHistory,
-                executionSettings,
-                _kernel))
-            {
-                if (!string.IsNullOrEmpty(chunk.Content))
+                if (!string.IsNullOrEmpty(content.Content))
                 {
-                    fullResponse.Append(chunk.Content);
-                    yield return chunk.Content;
+                    yield return content.Content;
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting streaming AI response");
+            _logger.LogError(ex, "Error getting streaming AI response from agent");
             yield return "I'm sorry, I encountered an error generating a response.";
+        }
+    }
+
+    /// <summary>
+    /// Gets AI response with thinking/reasoning process logged (for thinking models like o1)
+    /// </summary>
+    public async Task<(string response, string? thinking)> GetResponseWithThinkingAsync(ConversationContext context)
+    {
+        if (_agent == null)
+        {
+            _logger.LogError("Agent not initialized");
+            return ("I'm sorry, the agent is not properly initialized.", null);
+        }
+
+        try
+        {
+            // Invoke the agent with the chat history
+            var agentResponse = await _agent.InvokeAsync(context.ChatHistory).ConfigureAwait(false);
+
+            // Extract the response content
+            var responseContent = agentResponse.Content ?? "I'm sorry, I couldn't generate a response.";
+
+            // Try to extract thinking/reasoning from metadata
+            string? thinkingProcess = null;
+
+            // Check if the response has metadata with thinking information
+            if (agentResponse.Metadata != null)
+            {
+                // For models that support reasoning (like OpenAI o1), check for reasoning content
+                if (agentResponse.Metadata.TryGetValue("Reasoning", out var reasoning))
+                {
+                    thinkingProcess = reasoning?.ToString();
+                }
+                else if (agentResponse.Metadata.TryGetValue("ThoughtProcess", out var thought))
+                {
+                    thinkingProcess = thought?.ToString();
+                }
+
+                // Log the thinking process if available
+                if (!string.IsNullOrEmpty(thinkingProcess))
+                {
+                    _logger.LogInformation("Agent thinking process: {Thinking}", thinkingProcess);
+                }
+            }
+
+            return (responseContent, thinkingProcess);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting AI response with thinking from agent");
+            return ("I'm sorry, I encountered an error generating a response.", null);
         }
     }
 
