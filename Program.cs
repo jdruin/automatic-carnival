@@ -3,9 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using SlackNet.Extensions.DependencyInjection;
+using StackExchange.Redis;
 using SlackAiAgent.Configuration;
 using SlackAiAgent.Services;
 using SlackAiAgent.Services.AI;
+using SlackAiAgent.Services.Storage;
 
 namespace SlackAiAgent;
 
@@ -36,13 +38,35 @@ class Program
                 // Register services
                 services.AddSingleton(appSettings);
 
+                // Configure Redis and conversation storage
+                if (appSettings.Redis.Enabled)
+                {
+                    services.AddSingleton<IConnectionMultiplexer>(provider =>
+                    {
+                        var settings = provider.GetRequiredService<AppSettings>();
+                        Console.WriteLine($"Connecting to Redis: {settings.Redis.ConnectionString}");
+                        return ConnectionMultiplexer.Connect(settings.Redis.ConnectionString);
+                    });
+                    services.AddSingleton<IConversationStore, RedisConversationStore>();
+                    Console.WriteLine("Redis conversation persistence enabled");
+                }
+                else
+                {
+                    services.AddSingleton<IConversationStore, InMemoryConversationStore>();
+                    Console.WriteLine("Using in-memory conversation storage (data will not persist across restarts)");
+                }
+
                 // Configure ConversationManager
                 services.AddSingleton(provider =>
                 {
                     var settings = provider.GetRequiredService<AppSettings>();
+                    var store = provider.GetRequiredService<IConversationStore>();
+                    var logger = provider.GetRequiredService<ILogger<ConversationManager>>();
                     return new ConversationManager(
                         settings.Agent.MaxHistoryMessages,
-                        settings.Agent.SystemPrompt);
+                        settings.Agent.SystemPrompt,
+                        store,
+                        logger);
                 });
 
                 // Configure AI Chat Completion Service

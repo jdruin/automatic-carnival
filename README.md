@@ -13,6 +13,7 @@ A powerful Slack bot that uses **Microsoft Semantic Kernel** (Microsoft Agent Fr
 - **Thread-Aware**: Automatically tracks and maintains conversation history per thread
 - **Real-time Communication**: Uses Slack Socket Mode for instant message handling
 - **Conversation Memory**: Configurable message history with automatic cleanup
+- **Redis Persistence**: Optional Redis integration to persist conversations across agent restarts
 - **Tool/Function Calling**: Agent can automatically invoke tools to enhance capabilities
 - **Pure Semantic Kernel**: 100% Microsoft Semantic Kernel implementation, no Bot Framework dependency
 
@@ -75,24 +76,27 @@ The agent automatically determines when to use these tools based on your questio
 │  - Thread-based context tracking         │
 │  - Chat history management               │
 │  - Automatic cleanup                     │
-└────────┬────────────────────────────────┘
-         │
-┌────────▼────────────────────────────────┐
-│      AgentOrchestrator                   │
-│  - Semantic Kernel setup                 │
-│  - Plugin registration                   │
-│  - Auto function calling                 │
+│  - Local cache + persistence             │
 └────────┬────────────────────────────────┘
          │
          ├─────────────────────────┐
          │                         │
 ┌────────▼────────────┐   ┌────────▼────────────┐
-│  LLM Providers      │   │  Tool Plugins       │
-│  - Ollama           │   │  - DateTime         │
-│  - Bedrock (Claude) │   │  - Calculator       │
-└─────────────────────┘   │  - TextUtility      │
-                          │  - Slack            │
-                          └─────────────────────┘
+│  Storage Layer      │   │ AgentOrchestrator   │
+│  - Redis (optional) │   │ - SK setup          │
+│  - In-Memory        │   │ - Plugin registry   │
+│  - Auto failover    │   │ - Auto tool call    │
+└─────────────────────┘   └────────┬────────────┘
+                                   │
+                 ├─────────────────┴────────────┐
+                 │                              │
+        ┌────────▼────────────┐   ┌─────────▼──────────┐
+        │  LLM Providers      │   │  Tool Plugins      │
+        │  - Ollama           │   │  - DateTime        │
+        │  - Bedrock (Claude) │   │  - Calculator      │
+        └─────────────────────┘   │  - TextUtility     │
+                                  │  - Slack           │
+                                  └────────────────────┘
 ```
 
 ## Prerequisites
@@ -102,6 +106,7 @@ The agent automatically determines when to use these tools based on your questio
   - **Ollama** (for local LLM deployment)
   - **AWS Account** with Bedrock access (for cloud-based LLM)
 - Slack workspace with admin access
+- **Redis** (optional, for conversation persistence across restarts)
 
 ## Slack App Setup
 
@@ -163,7 +168,14 @@ Edit `appsettings.json`:
   },
   "Agent": {
     "SystemPrompt": "You are a helpful AI assistant in a Slack workspace. Be concise and professional.",
-    "MaxHistoryMessages": 10
+    "MaxHistoryMessages": 10,
+    "LogThinking": false
+  },
+  "Redis": {
+    "Enabled": false,
+    "ConnectionString": "localhost:6379",
+    "DatabaseNumber": 0,
+    "ExpirationHours": 24
   }
 }
 ```
@@ -176,6 +188,8 @@ export Slack__BotToken="xoxb-xxxxx-xxxxx-xxxxx"
 export AI__Provider="Ollama"
 export AI__Ollama__Endpoint="http://localhost:11434"
 export AI__Ollama__ModelId="llama3.2"
+export Redis__Enabled="true"
+export Redis__ConnectionString="localhost:6379"
 ```
 
 ### Configuration Parameters
@@ -202,6 +216,22 @@ export AI__Ollama__ModelId="llama3.2"
   - Useful for debugging and understanding agent decisions
   - Supported by thinking models like OpenAI o1
   - Logs appear in console output with clear markers
+
+#### Redis Settings (Optional)
+- `Redis:Enabled`: Enable Redis for conversation persistence (default: false)
+- `Redis:ConnectionString`: Redis connection string (default: "localhost:6379")
+- `Redis:DatabaseNumber`: Redis database number to use (default: 0)
+- `Redis:ExpirationHours`: Hours before conversations expire (default: 24)
+
+**Why use Redis?**
+- **Persistence**: Conversations survive agent restarts and deployments
+- **Scalability**: Run multiple agent instances sharing the same conversation state
+- **Reliability**: Automatic expiration prevents memory leaks from abandoned conversations
+
+**When Redis is disabled:**
+- Conversations are stored in-memory only
+- All conversation history is lost when the agent restarts
+- Suitable for development and testing
 
 ## Installation & Running
 
@@ -252,6 +282,56 @@ export AI__Ollama__ModelId="llama3.2"
    dotnet build
    dotnet run
    ```
+
+### Using Redis for Persistence (Optional)
+
+Redis provides conversation persistence across agent restarts. This is especially useful for production deployments.
+
+1. **Install Redis**:
+   ```bash
+   # macOS (using Homebrew)
+   brew install redis
+   brew services start redis
+
+   # Ubuntu/Debian
+   sudo apt-get install redis-server
+   sudo systemctl start redis
+
+   # Docker
+   docker run -d -p 6379:6379 redis:latest
+
+   # Or use a managed Redis service (AWS ElastiCache, Azure Cache, etc.)
+   ```
+
+2. **Enable Redis in configuration**:
+   ```json
+   {
+     "Redis": {
+       "Enabled": true,
+       "ConnectionString": "localhost:6379",
+       "DatabaseNumber": 0,
+       "ExpirationHours": 24
+     }
+   }
+   ```
+
+3. **Verify Redis connection**:
+   When you start the agent with Redis enabled, you'll see:
+   ```
+   Connecting to Redis: localhost:6379
+   Redis conversation persistence enabled
+   ```
+
+4. **Test persistence**:
+   - Start a conversation with the bot in Slack
+   - Restart the agent (Ctrl+C and `dotnet run`)
+   - Continue the conversation - the bot will remember the context!
+
+**Redis Connection Strings:**
+- Local: `localhost:6379`
+- Remote: `redis.example.com:6379`
+- With password: `redis.example.com:6379,password=yourpassword`
+- SSL: `redis.example.com:6380,ssl=true,password=yourpassword`
 
 ## Usage
 
@@ -327,10 +407,14 @@ SlackAiAgent/
 │   ├── AgentOrchestrator.cs           # AI agent with tool calling
 │   ├── ConversationManager.cs         # Multi-thread conversation tracking
 │   ├── SlackService.cs                # Slack integration
-│   └── AI/
-│       ├── AIServiceFactory.cs        # LLM provider factory
-│       ├── OllamaChatCompletion.cs    # Ollama connector
-│       └── BedrockChatCompletion.cs   # Bedrock connector
+│   ├── AI/
+│   │   ├── AIServiceFactory.cs        # LLM provider factory
+│   │   ├── OllamaChatCompletion.cs    # Ollama connector
+│   │   └── BedrockChatCompletion.cs   # Bedrock connector
+│   └── Storage/
+│       ├── IConversationStore.cs      # Storage interface
+│       ├── RedisConversationStore.cs  # Redis persistence
+│       └── InMemoryConversationStore.cs # In-memory fallback
 ├── Plugins/
 │   ├── DateTimePlugin.cs              # Date/time operations
 │   ├── CalculatorPlugin.cs            # Mathematical calculations
@@ -367,6 +451,8 @@ Manages multiple independent conversation contexts based on Slack thread IDs:
 - Maintains separate chat histories per thread
 - Automatically trims old messages based on `MaxHistoryMessages`
 - Cleans up inactive conversations after 24 hours
+- Uses two-tier caching: local in-memory cache + persistent storage
+- Automatically persists changes to storage layer asynchronously
 
 ### SlackService
 Handles Slack integration:
@@ -374,6 +460,23 @@ Handles Slack integration:
 - Routes messages to appropriate conversation contexts
 - Manages bot mentions and direct messages
 - Provides Slack client to plugins
+
+### Storage Implementations
+Two storage backends are available for conversation persistence:
+
+**RedisConversationStore**:
+- Persists conversations to Redis with JSON serialization
+- Automatic TTL-based expiration (configurable via `ExpirationHours`)
+- Converts `ChatHistory` to serializable format for storage
+- Used when `Redis:Enabled` is `true`
+
+**InMemoryConversationStore**:
+- Fallback implementation using `ConcurrentDictionary`
+- No persistence across restarts
+- Automatic cleanup of conversations older than 24 hours
+- Used when `Redis:Enabled` is `false`
+
+The ConversationManager abstracts storage through the `IConversationStore` interface, making it easy to add additional storage backends (e.g., SQL, CosmosDB) in the future.
 
 ### AI Service Implementations
 Both Ollama and Bedrock connectors implement `IChatCompletionService` from Semantic Kernel:
@@ -411,6 +514,13 @@ Each plugin uses Semantic Kernel's `[KernelFunction]` attributes for automatic d
 - Verify AWS credentials are configured
 - Check IAM permissions for Bedrock access
 - Ensure model access is granted in AWS Console
+
+### Redis connection errors
+- Verify Redis is running: `redis-cli ping` (should return "PONG")
+- Check Redis connection string is correct
+- Ensure firewall allows connections to Redis port
+- If Redis is unavailable, agent will fall back to in-memory storage
+- Check agent console logs for "Using in-memory conversation storage" message
 
 ## Development
 
@@ -487,9 +597,12 @@ public class WeatherPlugin
 ## Performance Considerations
 
 - **Memory**: Each conversation context stores up to `MaxHistoryMessages` in memory
-- **Cleanup**: Inactive conversations (>24 hours) are automatically cleaned
+- **Storage**: Conversations are persisted asynchronously to avoid blocking message handling
+- **Caching**: Two-tier cache (local memory + Redis) minimizes storage round-trips
+- **Cleanup**: Inactive conversations (>24 hours) are automatically cleaned from both cache and storage
 - **Threading**: Socket Mode runs message handlers concurrently
 - **Rate Limits**: Respects Slack API rate limits automatically
+- **Redis**: When enabled, provides horizontal scalability for multiple agent instances
 
 ## Security Notes
 

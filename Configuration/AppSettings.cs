@@ -5,6 +5,7 @@ public class AppSettings
     public SlackSettings Slack { get; set; } = new();
     public AISettings AI { get; set; } = new();
     public AgentSettings Agent { get; set; } = new();
+    public RedisSettings Redis { get; set; } = new();
 }
 
 public class SlackSettings
@@ -37,4 +38,12 @@ public class AgentSettings
     public string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
     public int MaxHistoryMessages { get; set; } = 10;
     public bool LogThinking { get; set; } = false; // Enable logging of thinking/reasoning process
+}
+
+public class RedisSettings
+{
+    public bool Enabled { get; set; } = false; // Enable Redis for conversation persistence
+    public string ConnectionString { get; set; } = "localhost:6379"; // Redis connection string
+    public int DatabaseNumber { get; set; } = 0; // Redis database number
+    public int ExpirationHours { get; set; } = 24; // Hours until conversations expire in Redis
 }
